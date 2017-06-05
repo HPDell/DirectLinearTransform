@@ -1,17 +1,24 @@
 #pragma once
 
-struct ImageGcp
+#include <vector>
+
+using namespace std;
+struct ImagePoint
 {
     double x;
     double y;
 };
 
-struct GroundGcp
+typedef ImagePoint ImageGcp;
+
+struct GroundPoint
 {
     double X;
     double Y;
     double Z;
 };
+
+typedef GroundPoint GroundGcp;
 
 struct GCP
 {
@@ -20,12 +27,16 @@ struct GCP
     GroundGcp ground;
 };
 
+struct GCPpp : public GCP {
+    double residual;
+};
+
 struct ExteriorElements
 {
     double Xs;
     double Ys;
     double Zs;
-    double varphi;
+    double phi;
     double omega;
     double kappa;
 };
@@ -38,4 +49,16 @@ struct InneriorElements
     double y0;
     double ds;
     double db;
+};
+
+struct SingleTiePoint
+{
+    size_t imgId;
+    ImagePoint ip;
+};
+
+struct TiePoint
+{
+    vector<SingleTiePoint> ties;
+    GroundPoint gp;
 };
