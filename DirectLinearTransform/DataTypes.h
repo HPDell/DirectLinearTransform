@@ -62,3 +62,37 @@ struct TiePoint
     vector<SingleTiePoint> ties;
     GroundPoint gp;
 };
+
+
+struct ImagePointResidual
+{
+    size_t id;
+    double vx;
+    double vy;
+    double vxy;
+};
+
+struct ResectionReport
+{
+    InneriorElements inn_rep;
+    ExteriorElements ext_rep;
+    vector<double> l;
+    vector<double> calib_params;
+    double m0;
+    vector<ImagePointResidual> image_point_residual;
+};
+
+struct GroundPointResidual
+{
+    size_t id;
+    double vX;
+    double vY;
+    double vZ;
+};
+
+struct IntersectionReport
+{
+    double mXY;
+    double mZ;
+    vector<GroundPointResidual> ground_point_residual;
+};

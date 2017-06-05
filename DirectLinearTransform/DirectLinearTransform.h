@@ -54,7 +54,7 @@ public:
     void AddTiePoint(size_t id, double x, double y, double X, double Y, double Z)
     {
         GCP gcp = { id,{ x, y },{ X,Y,Z } };
-        vGcps.push_back(gcp);
+        vTiePoints.push_back(gcp);
     }
     /// <summary>
     /// 解算l系数
@@ -68,6 +68,13 @@ public:
     /// <returns></returns>
     /// <created>HuYG,2017/6/4</created>
     double ResectionPrecision(double* pointResidual = nullptr);
+    /// <summary>
+    /// 获取空间后交报告
+    /// </summary>
+    /// <returns></returns>
+    /// <created>HuYG,2017/6/5</created>
+    ResectionReport GetResectionReport();
+    IntersectionReport GetIntersectionReport(CDirectLinearTransform& right);
     /// <summary>
     /// 根据l系数计算像点坐标
     /// </summary>

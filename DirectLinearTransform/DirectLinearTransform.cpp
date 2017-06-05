@@ -115,6 +115,55 @@ double CDirectLinearTransform::ResectionPrecision(double* pointResidual)
     return m0;
 }
 
+ResectionReport CDirectLinearTransform::GetResectionReport()
+{
+    ResectionReport report;
+    report.inn_rep = inn;
+    report.ext_rep = ext;
+    // l系数
+    for (size_t i = 0; i < 11; i++) report.l.push_back(l[i]);
+    // k
+    for (size_t i = 0; i < m_nCalibNums; i++) report.calib_params.push_back(k[i]);
+    // 像点坐标误差
+    double m0 = 0.0;
+    size_t nPointNum = vGcps.size();
+    for (size_t i = 0; i < nPointNum; i++)
+    {
+        GCP& iGcp = vGcps.at(i);
+        double vx = 0.0, vy = 0.0, vxy;
+        ImagePoint imgPointCalc = CalcImageResidual(iGcp);
+        vx = imgPointCalc.x - iGcp.image.x/* / (l[8] * iGcp.ground.X + l[9] * iGcp.ground.Y + l[10] * iGcp.ground.Z + 1)*/;
+        vy = imgPointCalc.y - iGcp.image.y/* / (l[8] * iGcp.ground.X + l[9] * iGcp.ground.Y + l[10] * iGcp.ground.Z + 1)*/;
+        vxy = vx * vx + vy * vy;
+        report.image_point_residual.push_back({ iGcp.id, vx, vy, sqrt(vxy) });
+        m0 += vxy;
+    }
+    report.m0 = sqrt(m0 / (2 * nPointNum - 11));
+    return report;
+}
+
+IntersectionReport CDirectLinearTransform::GetIntersectionReport(CDirectLinearTransform& right)
+{
+    IntersectionReport report;
+    size_t nTiePointNum = vTiePoints.size();
+    double mXY = 0.0, mZ = 0.0;
+    for (size_t i = 0; i < nTiePointNum; i++)
+    {
+        const GroundPoint& groundCalc = vTiePoints.at(i).ground;
+        const GroundPoint& groundTruth = right.vTiePoints.at(i).ground;
+        double dX = 0.0, dY = 0.0, dZ = 0.0;
+        dX = groundCalc.X - groundTruth.X;
+        dY = groundCalc.Y - groundTruth.Y;
+        dZ = groundCalc.Z - groundTruth.Z;
+        report.ground_point_residual.push_back({ vTiePoints.at(i).id, dX, dY, dZ });
+        mXY += dX*dX + dY *dY;
+        mZ += dZ * dZ;
+    }
+    report.mXY = sqrt(mXY / nTiePointNum);
+    report.mZ = sqrt(mZ / nTiePointNum);
+    return report;
+}
+
 void CDirectLinearTransform::CalcInneriorElements()
 {
     double gamma3t = l[8] * l[8] + l[9] * l[9] + l[10] * l[10];
@@ -137,9 +186,13 @@ void CDirectLinearTransform::CalcExteriorElements()
     // 外放为线元素
     Matrix3d matCoeff;
     matCoeff << l[0], l[1], l[2], l[4], l[5], l[6], l[8], l[9], l[10];
-    Vector3d matConst;
-    matConst << l[3], l[7], -1;
-    Vector3d matExtLine = matCoeff.lu().solve(matConst);
+    //matCoeff(0, 0) = l[0]; matCoeff(0, 1) = l[1]; matCoeff(0, 2) = l[2];
+    //matCoeff(1, 0) = l[4]; matCoeff(1, 1) = l[5]; matCoeff(1, 2) = l[6];
+    //matCoeff(2, 0) = l[8]; matCoeff(2, 1) = l[9]; matCoeff(2, 2) = l[10];
+    Vector3d vecConst;
+    vecConst << -l[3], -l[7], -1;
+    //vecConst[0] = -l[3]; vecConst[1] = -l[7]; vecConst[2] = -1;
+    Vector3d matExtLine = matCoeff.lu().solve(vecConst);
     ext.Xs = matExtLine[0];
     ext.Ys = matExtLine[1];
     ext.Zs = matExtLine[2];
@@ -180,8 +233,8 @@ void CDirectLinearTransform::Resection_l_Approx()
         matCoeff(i*2, 9) = iGcp.image.x * iGcp.ground.Y;  matCoeff(i*2 + 1, 9) = iGcp.image.y * iGcp.ground.Y;
         matCoeff(i*2, 10) = iGcp.image.x * iGcp.ground.Z; matCoeff(i*2 + 1, 10) = iGcp.image.y * iGcp.ground.Z;
         // 常数项矩阵
-        vecConst(i*2) = iGcp.image.x;
-        vecConst(i*2 + 1) = iGcp.image.y;
+        vecConst(i*2) = -iGcp.image.x;
+        vecConst(i*2 + 1) = -iGcp.image.y;
     }
     //cout << setiosflags(ios::right) << setiosflags(ios::fixed) << setprecision(6) << setw(8) << matCoeff;
     VectorXd vecL = (matCoeff.transpose() * matCoeff).lu().solve(matCoeff.transpose() * vecConst);
@@ -191,7 +244,7 @@ void CDirectLinearTransform::Resection_l_Approx()
 void CDirectLinearTransform::Resection_l_Exact()
 {
     size_t nGcpNums = vGcps.size();
-    GCP* pGcp = vGcps.data();
+    //GCP* pGcp = vGcps.data();
 
     // 逐点法化
     MatrixXd MTM = MatrixXd::Zero(11 + m_nCalibNums, 11 + m_nCalibNums);
@@ -200,8 +253,8 @@ void CDirectLinearTransform::Resection_l_Exact()
     VectorXd iW(2);
     for (size_t i = 0; i < nGcpNums; i++)
     {
-        GCP& iGcp = *(pGcp + i);
-        double A = l[8] * iGcp.ground.X + l[9] * iGcp.ground.Y + l[10] * iGcp.ground.Z;
+        GCP& iGcp = vGcps.at(i);
+        double A = l[8] * iGcp.ground.X + l[9] * iGcp.ground.Y + l[10] * iGcp.ground.Z + 1;
         double Dx = iGcp.image.x - inn.x0, Dy = iGcp.image.y - inn.y0;
         double r2 = Dx*Dx + Dy*Dy;
         // 系数矩阵
@@ -288,15 +341,17 @@ void CDirectLinearTransform::RectifyImagePoint()
 
 void CDirectLinearTransform::Intersection_SpaceApprox(ImagePoint& lp, ImagePoint& rp, double* ll, double* rl, GroundPoint& gp)
 {
-    MatrixXd matCoeff(4, 3);
-    VectorXd vecConst(4);
+    //MatrixXd matCoeff(4, 3);
+    //VectorXd vecConst(4);
+    MatrixXd matCoeff(3, 3);
+    VectorXd vecConst(3);
     matCoeff(0, 0) = ll[0] + lp.x * ll[8]; matCoeff(0, 1) = ll[1] + lp.x * ll[9]; matCoeff(0, 2) = ll[2] + lp.x * ll[10];
-    matCoeff(1, 0) = ll[4] + lp.x * ll[8]; matCoeff(1, 1) = ll[5] + lp.x * ll[9]; matCoeff(1, 2) = ll[6] + lp.x * ll[10];
+    matCoeff(1, 0) = ll[4] + lp.y * ll[8]; matCoeff(1, 1) = ll[5] + lp.y * ll[9]; matCoeff(1, 2) = ll[6] + lp.y * ll[10];
     matCoeff(2, 0) = rl[0] + rp.x * rl[8]; matCoeff(2, 1) = rl[1] + rp.x * rl[9]; matCoeff(2, 2) = rl[2] + rp.x * rl[10];
-    matCoeff(3, 0) = rl[4] + rp.x * rl[8]; matCoeff(3, 1) = rl[5] + rp.x * rl[9]; matCoeff(3, 2) = rl[6] + rp.x * rl[10];
-    vecConst(0) = -ll[3] * lp.x; vecConst(1) = -ll[7] * lp.y;
-    vecConst(2) = -rl[3] * rp.x; vecConst(3) = -rl[7] * rp.y;
-    VectorXd matX = (matCoeff.transpose() * matCoeff).lu().solve(matCoeff.transpose() * vecConst);
+    //matCoeff(3, 0) = rl[4] + rp.y * rl[8]; matCoeff(3, 1) = rl[5] + rp.y * rl[9]; matCoeff(3, 2) = rl[6] + rp.y * rl[10];
+    vecConst(0) = -(ll[3] + lp.x); vecConst(1) = -(ll[7] + lp.y);
+    vecConst(2) = -(rl[3] + rp.x); /*vecConst(3) = -rl[7] * rp.y;*/
+    VectorXd matX = (matCoeff).lu().solve(vecConst);
     gp.X = matX[0]; gp.Y = matX[1]; gp.Z = matX[2];
 }
 
@@ -310,14 +365,16 @@ void CDirectLinearTransform::Intersection_SpaceExact(ImagePoint& lp, ImagePoint&
     while (abs(delta) > 1.0e-4)
     {
         double X0 = gp.X, Y0 = gp.Y, Z0 = gp.Z;
-        double Al = ll[8] * gp.Y + ll[9] * gp.Y + ll[10] * gp.Z + 1;
-        double Ar = rl[8] * gp.Y + rl[9] * gp.Y + rl[10] * gp.Z + 1;
+        double Al = ll[8] * gp.X + ll[9] * gp.Y + ll[10] * gp.Z + 1;
+        double Ar = rl[8] * gp.X + rl[9] * gp.Y + rl[10] * gp.Z + 1;
         matCoeff(0, 0) = -(ll[0] + lp.x * ll[8]) / Al; matCoeff(0, 1) = -(ll[1] + lp.x * ll[9]) / Al; matCoeff(0, 2) = -(ll[2] + lp.x * ll[10]) / Al;
-        matCoeff(1, 0) = -(ll[4] + lp.x * ll[8]) / Al; matCoeff(1, 1) = -(ll[5] + lp.x * ll[9]) / Al; matCoeff(1, 2) = -(ll[6] + lp.x * ll[10]) / Al;
+        matCoeff(1, 0) = -(ll[4] + lp.y * ll[8]) / Al; matCoeff(1, 1) = -(ll[5] + lp.y * ll[9]) / Al; matCoeff(1, 2) = -(ll[6] + lp.y * ll[10]) / Al;
         matCoeff(2, 0) = -(rl[0] + rp.x * rl[8]) / Ar; matCoeff(2, 1) = -(rl[1] + rp.x * rl[9]) / Ar; matCoeff(2, 2) = -(rl[2] + rp.x * rl[10]) / Ar;
-        matCoeff(3, 0) = -(rl[4] + rp.x * rl[8]) / Ar; matCoeff(3, 1) = -(rl[5] + rp.x * rl[9]) / Ar; matCoeff(3, 2) = -(rl[6] + rp.x * rl[10]) / Ar;
-        vecConst(0) = (-ll[3] * lp.x) / Al; vecConst(1) = (-ll[7] * lp.y) / Al;
-        vecConst(2) = (-rl[3] * rp.x) / Ar; vecConst(3) = (-rl[7] * rp.y) / Ar;
+        matCoeff(3, 0) = -(rl[4] + rp.y * rl[8]) / Ar; matCoeff(3, 1) = -(rl[5] + rp.y * rl[9]) / Ar; matCoeff(3, 2) = -(rl[6] + rp.y * rl[10]) / Ar;
+        vecConst(0) = (ll[3] + lp.x) / Al;
+        vecConst(1) = (ll[7] + lp.y) / Al;
+        vecConst(2) = (rl[3] + rp.x) / Ar;
+        vecConst(3) = (rl[7] + rp.y) / Ar;
         matX = (matCoeff.transpose() * matCoeff).lu().solve(matCoeff.transpose() * vecConst);
         gp.X = matX[0]; gp.Y = matX[1]; gp.Z = matX[2];
         delta = abs(max(gp.X - X0, max(gp.Y - Y0, gp.Z - Z0)));
